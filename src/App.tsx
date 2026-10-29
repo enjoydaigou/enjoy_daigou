@@ -25,12 +25,35 @@ import { QuotingView } from './components/views/QuotingView';
 import { OrdersView } from './components/views/OrdersView';
 import { ProcurementView } from './components/views/ProcurementView';
 import { ReconciliationView } from './components/views/ReconciliationView';
-import { WishesView } from './components/views/WishesView';
 import { CustomersView } from './components/views/CustomersView';
 import { SettingsView } from './components/views/SettingsView';
 import { StorefrontView } from './components/storefront/StorefrontView';
 import { AdminLoginView } from './components/auth/AdminLoginView';
 import { LayoutDashboard, ShoppingBag, Boxes, CreditCard, Menu } from 'lucide-react';
+
+// 內建 WishesView 組件避免缺檔報錯
+const WishesView = ({ wishRequests }: any) => (
+  <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200">
+    <h2 className="text-xl font-bold mb-4">顧客許願清單</h2>
+    {wishRequests && wishRequests.length > 0 ? (
+      <div className="space-y-3">
+        {wishRequests.map((w: any) => (
+          <div key={w.id} className="p-4 border rounded-lg flex justify-between items-center">
+            <div>
+              <div className="font-semibold">{w.productName}</div>
+              <div className="text-sm text-slate-500">{w.specNote || '無備註'}</div>
+            </div>
+            <span className="text-xs bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full font-medium">
+              {w.status || '處理中'}
+            </span>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <p className="text-slate-500">目前尚無許願委託。</p>
+    )}
+  </div>
+);
 
 export default function App() {
   // 預設進入顧客前台商城；若網址帶有 ?mode=admin 則進入管理員後台
@@ -120,7 +143,7 @@ export default function App() {
   };
 
   const handleUpdateWish = (updatedWish: WishRequest) => {
-    const updated = wishRequests.map((w) => (w.id === updatedWish.id ? updatedWish : w));
+    const updated wishRequests.map((w) => (w.id === updatedWish.id ? updatedWish : w));
     setWishRequests(updated);
     saveStoredWishRequests(updated);
   };
@@ -358,323 +381,3 @@ export default function App() {
 
   const handleSaveCustomer = (customer: Customer) => {
     const exists = customers.some((c) => c.id === customer.id);
-    let updated: Customer[];
-    if (exists) {
-      updated = customers.map((c) => (c.id === customer.id ? customer : c));
-    } else {
-      updated = [customer, ...customers];
-    }
-    setCustomers(updated);
-    saveStoredCustomers(updated);
-  };
-
-  const handleSaveSettings = (newSettings: SystemSettings) => {
-    setSettings(newSettings);
-    saveStoredSettings(newSettings);
-  };
-
-  const handleOpenReconciliationWithOrder = (orderNo: string) => {
-    setReconcileFilterOrderNo(orderNo);
-    setActiveTab('reconciliation');
-  };
-
-  // Handlers for Storefront Customer Orders
-  const handleStorefrontPlaceOrder = (
-    newOrder: Order,
-    newCustomer: Customer,
-    paymentReport?: { last5: string; amount: number; bankName: string }
-  ) => {
-    handleSaveOrder(newOrder, newCustomer);
-
-    if (paymentReport) {
-      const newPayment: PaymentRecord = {
-        id: `pay-${Date.now()}`,
-        paymentNo: `PAY-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(
-          Math.random() * 90 + 10
-        )}`,
-        orderId: newOrder.id,
-        orderNo: newOrder.orderNo,
-        customerId: newCustomer.id,
-        customerName: newCustomer.name,
-        stage: 'deposit',
-        amount: paymentReport.amount,
-        bankName: paymentReport.bankName,
-        bankLast5: paymentReport.last5,
-        transferTime: new Date().toISOString(),
-        proofNote: '顧客於網站下單前台線上結帳時填寫回報',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-      };
-      const updatedPayments = [newPayment, ...payments];
-      setPayments(updatedPayments);
-      saveStoredPayments(updatedPayments);
-    }
-  };
-
-  const handleReportTransferLast5 = (orderNo: string, last5: string, amount: number) => {
-    const order = orders.find((o) => o.orderNo === orderNo);
-    if (!order) return;
-
-    const newPayment: PaymentRecord = {
-      id: `pay-${Date.now()}`,
-      paymentNo: `PAY-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(
-        Math.random() * 90 + 10
-      )}`,
-      orderId: order.id,
-      orderNo: order.orderNo,
-      customerId: order.customerId,
-      customerName: order.customerName,
-      stage: 'deposit',
-      amount: amount,
-      bankName: settings?.receivingBank?.bankName || '專屬帳戶',
-      bankLast5: last5,
-      transferTime: new Date().toISOString(),
-      proofNote: '顧客於網站前台訂單進度查詢頁回報',
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    };
-
-    const updatedPayments = [newPayment, ...payments];
-    setPayments(updatedPayments);
-    saveStoredPayments(updatedPayments);
-  };
-
-  const handleAdminLogin = (user: StaffUser) => {
-    setCurrentAdmin(user);
-    saveStoredCurrentAdmin(user);
-  };
-
-  const handleAdminLogout = () => {
-    setCurrentAdmin(null);
-    saveStoredCurrentAdmin(null);
-  };
-
-  // 1. 顧客前台商城視圖（預設顯示）
-  if (viewMode === 'storefront') {
-    return (
-      <StorefrontView
-        catalog={catalog}
-        settings={settings}
-        orders={orders}
-        customers={customers}
-        currentAdmin={currentAdmin}
-        wishRequests={wishRequests}
-        onPlaceOrder={handleStorefrontPlaceOrder}
-        onSaveCustomer={handleSaveCustomer}
-        onSwitchToAdmin={() => setViewMode('admin')}
-        onReportTransferLast5={handleReportTransferLast5}
-        onUpdateOrder={handleUpdateOrder}
-        onSaveWish={handleSaveWish}
-      />
-    );
-  }
-
-  // 2. 管理員未登入時的攔截門
-  if (!currentAdmin) {
-    return (
-      <AdminLoginView
-        settings={settings}
-        staffUsers={staffUsers}
-        onLoginSuccess={handleAdminLogin}
-        onReturnToStorefront={() => setViewMode('storefront')}
-      />
-    );
-  }
-
-  // 3. 管理員後台主視圖
-  return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden text-slate-900 font-sans antialiased relative">
-      {/* Left Navigation Sidebar */}
-      <Sidebar
-        activeTab={activeTab}
-        onTabChange={(tab) => {
-          setActiveTab(tab);
-          if (tab !== 'reconciliation') setReconcileFilterOrderNo('');
-        }}
-        pendingReconcileCount={pendingReconcileCount}
-        pendingPurchaseCount={pendingPurchaseCount}
-        arrivedPendingBalanceCount={arrivedPendingBalanceCount}
-        pendingWishCount={pendingWishCount}
-        onSwitchToStorefront={() => setViewMode('storefront')}
-        shopName={settings?.shopName || '享受代購'}
-        currentAdmin={currentAdmin}
-        onLogoutAdmin={handleAdminLogout}
-        isMobileOpen={isMobileMenuOpen}
-        onCloseMobile={() => setIsMobileMenuOpen(false)}
-      />
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Header */}
-        <Header
-          activeTab={activeTab}
-          onNavigateToQuoting={() => setActiveTab('quoting')}
-          onDataMutated={reloadAllData}
-          onSwitchToStorefront={() => setViewMode('storefront')}
-          shopName={settings?.shopName || '享受代購'}
-          currentAdmin={currentAdmin}
-          onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          onLogoutAdmin={handleAdminLogout}
-        />
-
-        {/* Scrollable Viewport */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-20 md:pb-6">
-          <div className="max-w-7xl mx-auto">
-            {activeTab === 'overview' && (
-              <OverviewView
-                orders={orders}
-                payments={payments}
-                customers={customers}
-                settings={settings}
-                onNavigate={(tab) => {
-                  setActiveTab(tab);
-                  if (tab !== 'reconciliation') setReconcileFilterOrderNo('');
-                }}
-                onSelectOrder={(ord) => setSelectedOrder(ord)}
-              />
-            )}
-
-            {activeTab === 'catalog' && (
-              <CatalogView
-                catalog={catalog}
-                settings={settings}
-                onSaveProduct={handleSaveProduct}
-                onDeleteProduct={handleDeleteProduct}
-                onQuickOrderWithItems={handleQuickOrderWithItems}
-              />
-            )}
-
-            {activeTab === 'quoting' && (
-              <QuotingView
-                customers={customers}
-                settings={settings}
-                catalog={catalog}
-                preselectedProduct={preselectedProduct}
-                preselectedItems={preselectedItems}
-                onClearPreselectedProduct={() => setPreselectedProduct(null)}
-                onClearPreselectedItems={() => setPreselectedItems(null)}
-                onSaveOrder={handleSaveOrder}
-                onNavigateToOrders={() => setActiveTab('orders')}
-              />
-            )}
-
-            {activeTab === 'orders' && (
-              <OrdersView
-                orders={orders}
-                settings={settings}
-                selectedOrder={selectedOrder}
-                onSelectOrder={setSelectedOrder}
-                onUpdateOrder={handleUpdateOrder}
-                onOpenReconciliationWithOrder={handleOpenReconciliationWithOrder}
-              />
-            )}
-
-            {activeTab === 'procurement' && (
-              <ProcurementView
-                orders={orders}
-                settings={settings}
-                onUpdateOrderItemStatus={handleUpdateOrderItemStatus}
-              />
-            )}
-
-            {activeTab === 'reconciliation' && (
-              <ReconciliationView
-                orders={orders}
-                payments={payments}
-                settings={settings}
-                onVerifyPayment={handleVerifyPayment}
-                onRejectPayment={handleRejectPayment}
-                onManualRecordPayment={handleManualRecordPayment}
-                initialFilterOrderNo={reconcileFilterOrderNo}
-              />
-            )}
-
-            {activeTab === 'wishes' && (
-              <WishesView
-                wishRequests={wishRequests}
-                settings={settings}
-                onUpdateWish={handleUpdateWish}
-                onConvertToQuote={handleConvertToQuoteFromWish}
-                onConvertToCatalog={handleConvertToCatalogFromWish}
-              />
-            )}
-
-            {activeTab === 'customers' && (
-              <CustomersView
-                customers={customers}
-                orders={orders}
-                onSaveCustomer={handleSaveCustomer}
-                onSelectOrder={(ord) => setSelectedOrder(ord)}
-                onNavigateToOrders={() => setActiveTab('orders')}
-              />
-            )}
-
-            {activeTab === 'settings' && (
-              <SettingsView
-                settings={settings}
-                onSaveSettings={handleSaveSettings}
-                onDataMutated={reloadAllData}
-              />
-            )}
-          </div>
-        </main>
-      </div>
-
-      {/* Mobile Bottom Navigation Bar */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 z-30 px-2 py-1.5 flex items-center justify-around shadow-lg">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-            activeTab === 'overview' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <LayoutDashboard className="w-5 h-5 mb-0.5" />
-          <span>儀表板</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('orders')}
-          className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-            activeTab === 'orders' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <ShoppingBag className="w-5 h-5 mb-0.5" />
-          <span>訂單</span>
-          {arrivedPendingBalanceCount > 0 && (
-            <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-purple-500" />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('procurement')}
-          className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-            activeTab === 'procurement' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Boxes className="w-5 h-5 mb-0.5" />
-          <span>採購</span>
-          {pendingPurchaseCount > 0 && (
-            <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-amber-500" />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('reconciliation')}
-          className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-            activeTab === 'reconciliation' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <CreditCard className="w-5 h-5 mb-0.5" />
-          <span>對帳</span>
-          {pendingReconcileCount > 0 && (
-            <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-rose-500" />
-          )}
-        </button>
-        <button
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-        >
-          <Menu className="w-5 h-5 mb-0.5" />
-          <span>更多功能</span>
-        </button>
-      </div>
-    </div>
-  );
-}
