@@ -14,8 +14,6 @@ import {
   getStoredStaffUsers,
   getStoredCurrentAdmin,
   saveStoredCurrentAdmin,
-  getStoredWishRequests,
-  saveStoredWishRequests,
 } from './utils/storage';
 import { Sidebar, NavTab } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
@@ -31,6 +29,25 @@ import { StorefrontView } from './components/storefront/StorefrontView';
 import { AdminLoginView } from './components/auth/AdminLoginView';
 import { LayoutDashboard, ShoppingBag, Boxes, CreditCard, Menu } from 'lucide-react';
 
+// 本機獨立處理許願清單存取，避免 storage.ts 缺 export 報錯
+const getStoredWishRequestsSafe = (): WishRequest[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('enjoy_daigou_wishes');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveStoredWishRequestsSafe = (wishes: WishRequest[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('enjoy_daigou_wishes', JSON.stringify(wishes));
+  } catch {}
+};
+
+// 內建 WishesView 避免缺檔編譯報錯
 const WishesView = ({ wishRequests }: any) => (
   <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200">
     <h2 className="text-xl font-bold mb-4">顧客許願清單</h2>
@@ -71,7 +88,7 @@ export default function App() {
   const [orders, setOrders] = useState<Order[]>(() => getStoredOrders?.() ?? []);
   const [payments, setPayments] = useState<PaymentRecord[]>(() => getStoredPayments?.() ?? []);
   const [catalog, setCatalog] = useState<CatalogProduct[]>(() => getStoredCatalog?.() ?? []);
-  const [wishRequests, setWishRequests] = useState<WishRequest[]>(() => getStoredWishRequests?.() ?? []);
+  const [wishRequests, setWishRequests] = useState<WishRequest[]>(() => getStoredWishRequestsSafe());
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>(() => getStoredStaffUsers?.() ?? []);
   const [currentAdmin, setCurrentAdmin] = useState<StaffUser | null>(() => getStoredCurrentAdmin?.() ?? null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
@@ -86,7 +103,7 @@ export default function App() {
     if (getStoredOrders) setOrders(getStoredOrders());
     if (getStoredPayments) setPayments(getStoredPayments());
     if (getStoredCatalog) setCatalog(getStoredCatalog());
-    if (getStoredWishRequests) setWishRequests(getStoredWishRequests());
+    setWishRequests(getStoredWishRequestsSafe());
     if (getStoredStaffUsers) setStaffUsers(getStoredStaffUsers());
     if (getStoredCurrentAdmin) setCurrentAdmin(getStoredCurrentAdmin());
   };
@@ -133,13 +150,13 @@ export default function App() {
   const handleSaveWish = (newWish: WishRequest) => {
     const updated = [newWish, ...wishRequests];
     setWishRequests(updated);
-    saveStoredWishRequests(updated);
+    saveStoredWishRequestsSafe(updated);
   };
 
   const handleUpdateWish = (updatedWish: WishRequest) => {
     const updated = wishRequests.map((w) => (w.id === updatedWish.id ? updatedWish : w));
     setWishRequests(updated);
-    saveStoredWishRequests(updated);
+    saveStoredWishRequestsSafe(updated);
   };
 
   const handleConvertToQuoteFromWish = (wish: WishRequest, quotedPriceTwd: number) => {
