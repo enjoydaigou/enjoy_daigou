@@ -142,11 +142,11 @@ export default function App() {
     saveStoredWishRequests(updated);
   };
 
-  const handleUpdateWish = (updatedWish: WishRequest) => {
-    const updated wishRequests.map((w) => (w.id === updatedWish.id ? updatedWish : w));
-    setWishRequests(updated);
-    saveStoredWishRequests(updated);
-  };
+const handleUpdateWish = (updatedWish: WishRequest) => {
+  const updated = wishRequests.map((w) => (w.id === updatedWish.id ? updatedWish : w));
+  setWishRequests(updated);
+  saveStoredWishRequests(updated);
+};
 
   const handleConvertToQuoteFromWish = (wish: WishRequest, quotedPriceTwd: number) => {
     const item: OrderItem = {
