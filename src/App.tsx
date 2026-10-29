@@ -31,7 +31,6 @@ import { StorefrontView } from './components/storefront/StorefrontView';
 import { AdminLoginView } from './components/auth/AdminLoginView';
 import { LayoutDashboard, ShoppingBag, Boxes, CreditCard, Menu } from 'lucide-react';
 
-// 內建 WishesView 避免缺檔編譯報錯
 const WishesView = ({ wishRequests }: any) => (
   <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200">
     <h2 className="text-xl font-bold mb-4">顧客許願清單</h2>
@@ -465,7 +464,6 @@ export default function App() {
     saveStoredCurrentAdmin(null);
   };
 
-  // 1. 顧客前台商城視圖（預設顯示）
   if (viewMode === 'storefront') {
     return (
       <StorefrontView
@@ -485,7 +483,6 @@ export default function App() {
     );
   }
 
-  // 2. 管理員未登入時的攔截門
   if (!currentAdmin) {
     return (
       <AdminLoginView
@@ -497,7 +494,6 @@ export default function App() {
     );
   }
 
-  // 3. 管理員後台主視圖
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden text-slate-900 font-sans antialiased relative">
       <Sidebar
