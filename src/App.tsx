@@ -1,592 +1,269 @@
-import React, { useState } from 'react';
-import { Customer, Order, OrderItem, Currency, PaymentRecord, PaymentStage, SystemSettings, CatalogProduct, OrderStatus, StaffUser } from './types';
-import {
-  getStoredSettings,
-  saveStoredSettings,
-  getStoredCustomers,
-  saveStoredCustomers,
-  getStoredOrders,
-  saveStoredOrders,
-  getStoredPayments,
-  saveStoredPayments,
-  getStoredCatalog,
-  saveStoredCatalog,
-  getStoredStaffUsers,
-  getStoredCurrentAdmin,
-  saveStoredCurrentAdmin,
-} from './utils/storage';
-import { Sidebar, NavTab } from './components/layout/Sidebar';
-import { Header } from './components/layout/Header';
-import { OverviewView } from './components/views/OverviewView';
-import { CatalogView } from './components/views/CatalogView';
-import { QuotingView } from './components/views/QuotingView';
-import { OrdersView } from './components/views/OrdersView';
-import { ProcurementView } from './components/views/ProcurementView';
-import { ReconciliationView } from './components/views/ReconciliationView';
-import { CustomersView } from './components/views/CustomersView';
-import { SettingsView } from './components/views/SettingsView';
-import { StorefrontView } from './components/storefront/StorefrontView';
-import { AdminLoginView } from './components/auth/AdminLoginView';
-import { LayoutDashboard, ShoppingBag, Boxes, CreditCard, Menu } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from './supabaseClient';
 
 export default function App() {
-  const [viewMode, setViewMode] = useState<'admin' | 'storefront'>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('mode') === 'shop' || params.get('mode') === 'storefront') {
-        return 'storefront';
-      }
-    }
-    return 'admin';
-  });
+  const [user, setUser] = useState<any>(null);
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<NavTab>('overview');
-  const [settings, setSettings] = useState<SystemSettings>(getStoredSettings());
-  const [customers, setCustomers] = useState<Customer[]>(getStoredCustomers());
-  const [orders, setOrders] = useState<Order[]>(getStoredOrders());
-  const [payments, setPayments] = useState<PaymentRecord[]>(getStoredPayments());
-  const [catalog, setCatalog] = useState<CatalogProduct[]>(getStoredCatalog());
-  const [staffUsers, setStaffUsers] = useState<StaffUser[]>(getStoredStaffUsers());
-  const [currentAdmin, setCurrentAdmin] = useState<StaffUser | null>(getStoredCurrentAdmin());
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [reconcileFilterOrderNo, setReconcileFilterOrderNo] = useState<string>('');
-  const [preselectedProduct, setPreselectedProduct] = useState<CatalogProduct | null>(null);
-  const [preselectedItems, setPreselectedItems] = useState<OrderItem[] | null>(null);
+  // 代購表單狀態
+  const [productName, setProductName] = useState('');
+  const [productUrl, setProductUrl] = useState('');
+  const [specs, setSpecs] = useState('');
+  const [orders, setOrders] = useState<any[]>([]);
 
-  // Reload data from storage
-  const reloadAllData = () => {
-    setSettings(getStoredSettings());
-    setCustomers(getStoredCustomers());
-    setOrders(getStoredOrders());
-    setPayments(getStoredPayments());
-    setCatalog(getStoredCatalog());
-    setStaffUsers(getStoredStaffUsers());
-    setCurrentAdmin(getStoredCurrentAdmin());
-  };
-
-  // Badge counts
-  const pendingReconcileCount = payments.filter((p) => p.status === 'pending').length;
-  const pendingPurchaseCount = orders
-    .filter(
-      (o) =>
-        o.status === 'purchasing' ||
-        (o.status === 'pending_deposit' && o.depositPaymentStatus === 'paid')
-    )
-    .flatMap((o) => o.items)
-    .filter((i) => i.purchaseStatus === 'pending')
-    .reduce((sum, i) => sum + i.quantity, 0);
-  const arrivedPendingBalanceCount = orders.filter(
-    (o) => o.status === 'arrived_tw' || o.status === 'pending_balance'
-  ).length;
-
-  // Handlers for Catalog
-  const handleSaveProduct = (product: CatalogProduct) => {
-    const exists = catalog.some((p) => p.id === product.id);
-    let updated: CatalogProduct[];
-    if (exists) {
-      updated = catalog.map((p) => (p.id === product.id ? product : p));
-    } else {
-      updated = [product, ...catalog];
-    }
-    setCatalog(updated);
-    saveStoredCatalog(updated);
-  };
-
-  const handleDeleteProduct = (productId: string) => {
-    const updated = catalog.filter((p) => p.id !== productId);
-    setCatalog(updated);
-    saveStoredCatalog(updated);
-  };
-
-  const handleQuickOrderWithItems = (items: OrderItem[], country: Currency) => {
-    setPreselectedItems(items);
-    setActiveTab('quoting');
-  };
-
-  // Handlers for Orders & Payments
-  const handleSaveOrder = (newOrder: Order, newCustomer?: Customer) => {
-    const updatedOrders = [newOrder, ...orders];
-    setOrders(updatedOrders);
-    saveStoredOrders(updatedOrders);
-
-    if (newCustomer) {
-      const existingIndex = customers.findIndex(
-        (c) => c.id === newCustomer.id || c.phone === newCustomer.phone
-      );
-      let updatedCustomers: Customer[];
-      if (existingIndex >= 0) {
-        updatedCustomers = [...customers];
-        const existing = updatedCustomers[existingIndex];
-        updatedCustomers[existingIndex] = {
-          ...existing,
-          ...newCustomer,
-          password: newCustomer.password || existing.password || 'password123',
-          ordersCount: existing.ordersCount + 1,
-          totalSpentTwd: existing.totalSpentTwd + newOrder.itemsTotalTwd,
-        };
-      } else {
-        updatedCustomers = [newCustomer, ...customers];
-      }
-      setCustomers(updatedCustomers);
-      saveStoredCustomers(updatedCustomers);
-    } else {
-      const updatedCustomers = customers.map((c) =>
-        c.id === newOrder.customerId
-          ? {
-              ...c,
-              ordersCount: c.ordersCount + 1,
-              totalSpentTwd: c.totalSpentTwd + newOrder.itemsTotalTwd,
-            }
-          : c
-      );
-      setCustomers(updatedCustomers);
-      saveStoredCustomers(updatedCustomers);
-    }
-  };
-
-  const handleUpdateOrder = (updated: Order) => {
-    const updatedOrders = orders.map((o) => (o.id === updated.id ? updated : o));
-    setOrders(updatedOrders);
-    saveStoredOrders(updatedOrders);
-  };
-
-  const handleVerifyPayment = (
-    paymentId: string,
-    orderId: string,
-    stage: PaymentStage,
-    amount: number
-  ) => {
-    const updatedPayments = payments.map((p) =>
-      p.id === paymentId
-        ? {
-            ...p,
-            status: 'verified' as const,
-            verifiedAt: new Date().toISOString(),
-            verifier: '系統管理員',
-          }
-        : p
-    );
-    setPayments(updatedPayments);
-    saveStoredPayments(updatedPayments);
-
-    const updatedOrders = orders.map((ord) => {
-      if (ord.id !== orderId) return ord;
-
-      if (stage === 'deposit') {
-        const newPaid = ord.depositPaidTwd + amount;
-        return {
-          ...ord,
-          depositPaidTwd: newPaid,
-          depositPaymentStatus: 'paid' as const,
-          status: ord.status === 'pending_deposit' ? ('purchasing' as const) : ord.status,
-        };
-      } else {
-        const newPaid = ord.balancePaidTwd + amount;
-        return {
-          ...ord,
-          balancePaidTwd: newPaid,
-          balancePaymentStatus: 'paid' as const,
-        };
+  // 1. 初始化與監聽身分驗證狀態
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchOrders(session.user.id);
       }
     });
-    setOrders(updatedOrders);
-    saveStoredOrders(updatedOrders);
 
-    if (selectedOrder && selectedOrder.id === orderId) {
-      const refreshed = updatedOrders.find((o) => o.id === orderId);
-      if (refreshed) setSelectedOrder(refreshed);
-    }
-  };
-
-  const handleRejectPayment = (paymentId: string, reason: string) => {
-    const updatedPayments = payments.map((p) =>
-      p.id === paymentId
-        ? {
-            ...p,
-            status: 'rejected' as const,
-            notes: `駁回原因: ${reason}`,
-          }
-        : p
-    );
-    setPayments(updatedPayments);
-    saveStoredPayments(updatedPayments);
-  };
-
-  const handleManualRecordPayment = (
-    payload: Omit<PaymentRecord, 'id' | 'paymentNo' | 'createdAt'>
-  ) => {
-    const newRecord: PaymentRecord = {
-      ...payload,
-      id: `pay-${Date.now()}`,
-      paymentNo: `PAY-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(
-        Math.random() * 90 + 10
-      )}`,
-      createdAt: new Date().toISOString(),
-    };
-
-    const updatedPayments = [newRecord, ...payments];
-    setPayments(updatedPayments);
-    saveStoredPayments(updatedPayments);
-
-    handleVerifyPayment(newRecord.id, payload.orderId, payload.stage, payload.amount);
-  };
-
-  const handleUpdateOrderItemStatus = (
-    orderId: string,
-    itemId: string,
-    newStatus: 'pending' | 'purchased' | 'out_of_stock',
-    actualCost?: number,
-    note?: string,
-    buyerDetails?: {
-      assignedPurchaserName?: string;
-      purchaserPricingType?: 'self' | 'commission_fixed' | 'commission_percent' | 'flat_cost';
-      purchaserCommissionTwd?: number;
-      actualPurchaseCostTwd?: number;
-    }
-  ) => {
-    const updatedOrders = orders.map((o) => {
-      if (o.id !== orderId) return o;
-      const updatedItems = o.items.map((it) => {
-        if (it.id !== itemId) return it;
-        return {
-          ...it,
-          purchaseStatus: newStatus,
-          actualPurchaseCostOriginal: actualCost ?? it.actualPurchaseCostOriginal,
-          purchaseNote: note ?? it.purchaseNote,
-          assignedPurchaserName: buyerDetails?.assignedPurchaserName ?? it.assignedPurchaserName,
-          purchaserPricingType: buyerDetails?.purchaserPricingType ?? it.purchaserPricingType,
-          purchaserCommissionTwd: buyerDetails?.purchaserCommissionTwd ?? it.purchaserCommissionTwd,
-          actualPurchaseCostTwd: buyerDetails?.actualPurchaseCostTwd ?? it.actualPurchaseCostTwd,
-        };
-      });
-
-      const allOutOfStock = updatedItems.length > 0 && updatedItems.every((it) => it.purchaseStatus === 'out_of_stock');
-      if (allOutOfStock && newStatus === 'out_of_stock') {
-        return {
-          ...o,
-          items: updatedItems,
-          status: 'out_of_stock' as OrderStatus,
-          isOutOfStock: true,
-          outOfStockReason: note || '買手回報專櫃/官網已售罄斷貨',
-          outOfStockNotifiedAt: new Date().toISOString(),
-          refundStatus: o.depositPaidTwd > 0 ? ('pending_info' as const) : ('none' as const),
-          refundAmountTwd: o.depositPaidTwd,
-        };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchOrders(session.user.id);
+      } else {
+        setOrders([]);
       }
-
-      return { ...o, items: updatedItems };
     });
 
-    setOrders(updatedOrders);
-    saveStoredOrders(updatedOrders);
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // 2. 抓取使用者的專屬訂單清單
+  const fetchOrders = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      if (data) setOrders(data);
+    } catch (err: any) {
+      console.error('取得訂單失敗:', err.message);
+    }
   };
 
-  const handleSaveCustomer = (customer: Customer) => {
-    const exists = customers.some((c) => c.id === customer.id);
-    let updated: Customer[];
-    if (exists) {
-      updated = customers.map((c) => (c.id === customer.id ? customer : c));
+  // 3. 處理註冊
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+    setLoading(false);
+    if (error) {
+      alert(`註冊失敗: ${error.message}`);
     } else {
-      updated = [customer, ...customers];
-    }
-    setCustomers(updated);
-    saveStoredCustomers(updated);
-  };
-
-  const handleSaveSettings = (newSettings: SystemSettings) => {
-    setSettings(newSettings);
-    saveStoredSettings(newSettings);
-  };
-
-  const handleOpenReconciliationWithOrder = (orderNo: string) => {
-    setReconcileFilterOrderNo(orderNo);
-    setActiveTab('reconciliation');
-  };
-
-  // Handlers for Storefront Customer Orders
-  const handleStorefrontPlaceOrder = (
-    newOrder: Order,
-    newCustomer: Customer,
-    paymentReport?: { last5: string; amount: number; bankName: string }
-  ) => {
-    handleSaveOrder(newOrder, newCustomer);
-
-    if (paymentReport) {
-      const newPayment: PaymentRecord = {
-        id: `pay-${Date.now()}`,
-        paymentNo: `PAY-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(
-          Math.random() * 90 + 10
-        )}`,
-        orderId: newOrder.id,
-        orderNo: newOrder.orderNo,
-        customerId: newCustomer.id,
-        customerName: newCustomer.name,
-        stage: 'deposit',
-        amount: paymentReport.amount,
-        bankName: paymentReport.bankName,
-        bankLast5: paymentReport.last5,
-        transferTime: new Date().toISOString(),
-        proofNote: '顧客於網站下單前台線上結帳時填寫回報',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-      };
-      const updatedPayments = [newPayment, ...payments];
-      setPayments(updatedPayments);
-      saveStoredPayments(updatedPayments);
+      alert('註冊成功！若有啟用信箱驗證，請至信箱點擊確認信，或直接嘗試登入。');
     }
   };
 
-  const handleReportTransferLast5 = (orderNo: string, last5: string, amount: number) => {
-    const order = orders.find((o) => o.orderNo === orderNo);
-    if (!order) return;
-
-    const newPayment: PaymentRecord = {
-      id: `pay-${Date.now()}`,
-      paymentNo: `PAY-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(
-        Math.random() * 90 + 10
-      )}`,
-      orderId: order.id,
-      orderNo: order.orderNo,
-      customerId: order.customerId,
-      customerName: order.customerName,
-      stage: 'deposit',
-      amount: amount,
-      bankName: settings.receivingBank.bankName,
-      bankLast5: last5,
-      transferTime: new Date().toISOString(),
-      proofNote: '顧客於網站前台訂單進度查詢頁回報',
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    };
-
-    const updatedPayments = [newPayment, ...payments];
-    setPayments(updatedPayments);
-    saveStoredPayments(updatedPayments);
+  // 4. 處理登入
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    setLoading(false);
+    if (error) {
+      alert(`登入失敗: ${error.message}`);
+    }
   };
 
-  const handleAdminLogin = (user: StaffUser) => {
-    setCurrentAdmin(user);
-    saveStoredCurrentAdmin(user);
+  // 5. 處理登出
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
   };
 
-  const handleAdminLogout = () => {
-    setCurrentAdmin(null);
-    saveStoredCurrentAdmin(null);
+  // 6. 提交代購單
+  const handleCreateOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return alert('請先登入');
+    setLoading(true);
+
+    const { error } = await supabase.from('orders').insert([
+      {
+        user_id: user.id,
+        customer_email: user.email,
+        product_name: productName,
+        product_url: productUrl,
+        specs: specs,
+        status: '待報價',
+      },
+    ]);
+
+    setLoading(false);
+    if (error) {
+      alert(`下單失敗: ${error.message}`);
+    } else {
+      alert('代購委託已成功送出！');
+      setProductName('');
+      setProductUrl('');
+      setSpecs('');
+      fetchOrders(user.id);
+    }
   };
-
-  // If currently in Storefront mode, render StorefrontView
-  if (viewMode === 'storefront') {
-    return (
-      <StorefrontView
-        catalog={catalog}
-        settings={settings}
-        orders={orders}
-        customers={customers}
-        currentAdmin={currentAdmin}
-        onPlaceOrder={handleStorefrontPlaceOrder}
-        onSaveCustomer={handleSaveCustomer}
-        onSwitchToAdmin={() => setViewMode('admin')}
-        onReportTransferLast5={handleReportTransferLast5}
-        onUpdateOrder={handleUpdateOrder}
-      />
-    );
-  }
-
-  // Admin access gate: require login if no active admin session
-  if (!currentAdmin) {
-    return (
-      <AdminLoginView
-        settings={settings}
-        staffUsers={staffUsers}
-        onLoginSuccess={handleAdminLogin}
-        onReturnToStorefront={() => setViewMode('storefront')}
-      />
-    );
-  }
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden text-slate-900 font-sans antialiased relative">
-      {/* Left Navigation Sidebar */}
-      <Sidebar
-        activeTab={activeTab}
-        onTabChange={(tab) => {
-          setActiveTab(tab);
-          if (tab !== 'reconciliation') setReconcileFilterOrderNo('');
-        }}
-        pendingReconcileCount={pendingReconcileCount}
-        pendingPurchaseCount={pendingPurchaseCount}
-        arrivedPendingBalanceCount={arrivedPendingBalanceCount}
-        onSwitchToStorefront={() => setViewMode('storefront')}
-        shopName={settings.shopName}
-        currentAdmin={currentAdmin}
-        onLogoutAdmin={handleAdminLogout}
-        isMobileOpen={isMobileMenuOpen}
-        onCloseMobile={() => setIsMobileMenuOpen(false)}
-      />
+    <div style={{ maxWidth: '680px', margin: '40px auto', padding: '0 20px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', color: '#333' }}>
+      <header style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <h1 style={{ fontSize: '28px', margin: '0 0 8px 0', color: '#111' }}>享受代購 Enjoy Daigou</h1>
+        <p style={{ color: '#666', margin: 0 }}>透明報價 · 全程進度追蹤 · 安心委託</p>
+      </header>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Header */}
-        <Header
-          activeTab={activeTab}
-          onNavigateToQuoting={() => setActiveTab('quoting')}
-          onDataMutated={reloadAllData}
-          onSwitchToStorefront={() => setViewMode('storefront')}
-          shopName={settings.shopName}
-          currentAdmin={currentAdmin}
-          onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          onLogoutAdmin={handleAdminLogout}
-        />
-
-        {/* Scrollable Viewport */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-20 md:pb-6">
-          <div className="max-w-7xl mx-auto">
-            {activeTab === 'overview' && (
-              <OverviewView
-                orders={orders}
-                payments={payments}
-                customers={customers}
-                settings={settings}
-                onNavigate={(tab) => {
-                  setActiveTab(tab);
-                  if (tab !== 'reconciliation') setReconcileFilterOrderNo('');
-                }}
-                onSelectOrder={(ord) => setSelectedOrder(ord)}
+      {!user ? (
+        <div style={{ background: '#fff', border: '1px solid #e1e4e8', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+          <h2 style={{ fontSize: '20px', marginTop: 0, marginBottom: '20px' }}>
+            {isRegisterMode ? '註冊新帳號' : '會員登入'}
+          </h2>
+          <form onSubmit={isRegisterMode ? handleSignUp : handleSignIn}>
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>電子郵件</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="example@mail.com"
+                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
               />
-            )}
-
-            {activeTab === 'catalog' && (
-              <CatalogView
-                catalog={catalog}
-                settings={settings}
-                onSaveProduct={handleSaveProduct}
-                onDeleteProduct={handleDeleteProduct}
-                onQuickOrderWithItems={handleQuickOrderWithItems}
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>密碼</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="至少 6 位數密碼"
+                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
               />
-            )}
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ width: '100%', padding: '12px', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '16px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              {loading ? '處理中...' : isRegisterMode ? '建立帳號' : '登入系統'}
+            </button>
+          </form>
 
-            {activeTab === 'quoting' && (
-              <QuotingView
-                customers={customers}
-                settings={settings}
-                catalog={catalog}
-                preselectedProduct={preselectedProduct}
-                preselectedItems={preselectedItems}
-                onClearPreselectedProduct={() => setPreselectedProduct(null)}
-                onClearPreselectedItems={() => setPreselectedItems(null)}
-                onSaveOrder={handleSaveOrder}
-                onNavigateToOrders={() => setActiveTab('orders')}
-              />
-            )}
-
-            {activeTab === 'orders' && (
-              <OrdersView
-                orders={orders}
-                settings={settings}
-                selectedOrder={selectedOrder}
-                onSelectOrder={setSelectedOrder}
-                onUpdateOrder={handleUpdateOrder}
-                onOpenReconciliationWithOrder={handleOpenReconciliationWithOrder}
-              />
-            )}
-
-            {activeTab === 'procurement' && (
-              <ProcurementView
-                orders={orders}
-                settings={settings}
-                onUpdateOrderItemStatus={handleUpdateOrderItemStatus}
-              />
-            )}
-
-            {activeTab === 'reconciliation' && (
-              <ReconciliationView
-                orders={orders}
-                payments={payments}
-                settings={settings}
-                onVerifyPayment={handleVerifyPayment}
-                onRejectPayment={handleRejectPayment}
-                onManualRecordPayment={handleManualRecordPayment}
-                initialFilterOrderNo={reconcileFilterOrderNo}
-              />
-            )}
-
-            {activeTab === 'customers' && (
-              <CustomersView
-                customers={customers}
-                orders={orders}
-                onSaveCustomer={handleSaveCustomer}
-                onSelectOrder={(ord) => setSelectedOrder(ord)}
-                onNavigateToOrders={() => setActiveTab('orders')}
-              />
-            )}
-
-            {activeTab === 'settings' && (
-              <SettingsView
-                settings={settings}
-                onSaveSettings={handleSaveSettings}
-                onDataMutated={reloadAllData}
-              />
+          <div style={{ marginTop: '16px', textAlign: 'center', fontSize: '14px' }}>
+            {isRegisterMode ? (
+              <span>已經有帳號？ <button type="button" onClick={() => setIsRegisterMode(false)} style={{ background: 'none', border: 'none', color: '#0070f3', cursor: 'pointer', textDecoration: 'underline' }}>前往登入</button></span>
+            ) : (
+              <span>還沒有帳號？ <button type="button" onClick={() => setIsRegisterMode(true)} style={{ background: 'none', border: 'none', color: '#0070f3', cursor: 'pointer', textDecoration: 'underline' }}>立即免費註冊</button></span>
             )}
           </div>
-        </main>
-      </div>
+        </div>
+      ) : (
+        <div>
+          {/* 會員資訊欄 */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f6f8fa', padding: '12px 16px', borderRadius: '8px', marginBottom: '24px' }}>
+            <span style={{ fontSize: '14px' }}>已登入：<strong>{user.email}</strong></span>
+            <button
+              onClick={handleSignOut}
+              style={{ padding: '6px 12px', background: '#fff', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer' }}
+            >
+              登出
+            </button>
+          </div>
 
-      {/* Mobile Bottom Navigation Bar */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 z-30 px-2 py-1.5 flex items-center justify-around shadow-lg">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-            activeTab === 'overview' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <LayoutDashboard className="w-5 h-5 mb-0.5" />
-          <span>儀表板</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('orders')}
-          className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-            activeTab === 'orders' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <ShoppingBag className="w-5 h-5 mb-0.5" />
-          <span>訂單</span>
-          {arrivedPendingBalanceCount > 0 && (
-            <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-purple-500" />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('procurement')}
-          className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-            activeTab === 'procurement' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Boxes className="w-5 h-5 mb-0.5" />
-          <span>採購</span>
-          {pendingPurchaseCount > 0 && (
-            <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-amber-500" />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('reconciliation')}
-          className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-            activeTab === 'reconciliation' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <CreditCard className="w-5 h-5 mb-0.5" />
-          <span>對帳</span>
-          {pendingReconcileCount > 0 && (
-            <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-rose-500" />
-          )}
-        </button>
-        <button
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-        >
-          <Menu className="w-5 h-5 mb-0.5" />
-          <span>更多功能</span>
-        </button>
-      </div>
+          {/* 送出代購單 */}
+          <div style={{ background: '#fff', border: '1px solid #e1e4e8', borderRadius: '12px', padding: '24px', marginBottom: '32px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+            <h2 style={{ fontSize: '18px', marginTop: 0, marginBottom: '16px' }}>填寫代購委託單</h2>
+            <form onSubmit={handleCreateOrder}>
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>商品名稱 *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="例如：日本限定 聯名保溫瓶"
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>商品網址 (URL) *</label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://..."
+                  value={productUrl}
+                  onChange={(e) => setProductUrl(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>規格與備註</label>
+                <textarea
+                  rows={3}
+                  placeholder="顏色、尺寸、數量或特別注意事項"
+                  value={specs}
+                  onChange={(e) => setSpecs(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{ width: '100%', padding: '12px', background: '#2ea44f', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '16px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                {loading ? '正在送出...' : '送出代購委託'}
+              </button>
+            </form>
+          </div>
+
+          {/* 歷史委託清單與進度 */}
+          <div>
+            <h2 style={{ fontSize: '18px', marginBottom: '16px' }}>我的委託進度</h2>
+            {orders.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px', border: '1px dashed #d1d5db', borderRadius: '8px', color: '#6b7280' }}>
+                尚無代購訂單紀錄，請於上方表單提交委託。
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {orders.map((o) => (
+                  <div key={o.id} style={{ border: '1px solid #e1e4e8', borderRadius: '8px', padding: '16px', background: '#fafbfc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <strong style={{ fontSize: '16px' }}>{o.product_name}</strong>
+                      <span style={{ padding: '4px 8px', borderRadius: '4px', background: '#e1f5fe', color: '#0288d1', fontSize: '12px', fontWeight: 600 }}>
+                        {o.status}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#555', marginBottom: '6px' }}>
+                      規格備註：{o.specs || '無'}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#0070f3', wordBreak: 'break-all', marginBottom: '8px' }}>
+                      <a href={o.product_url} target="_blank" rel="noreferrer" style={{ color: '#0070f3' }}>
+                        點此查看原始商品連結 ↗
+                      </a>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#888' }}>
+                      委託時間：{new Date(o.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
